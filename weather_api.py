@@ -6,6 +6,27 @@ from typing import Optional
 response_lang = "ru-ru"
 
 
+def fahrenheit_to_celsius(temperature: float) -> float:
+    """
+    Переводит температуру из шкалы Фаренгейта в шкалу Цельсия
+    :param temperature: значение температуры в шкале Фаренгейта
+    :return: значение температуры в шкале Цельсия
+    """
+    return (temperature - 32) * 5/9
+
+
+def miles_to_kilometers(miles: float) -> float:
+    """
+    Переводит величину (скорость или расстояние), связанную с милями
+    в величину, связанную с километрами
+    :param miles: значение величины в милях
+    :return: значение величины в километрах
+    :param miles:
+    :return:
+    """
+    return 1.609 * miles
+
+
 def get_location_key_by_geo_position(latitude: float, longitude: float) -> Optional[str]:
     """
     Получает ключ гео-позиции с сайта AccuWeather по географической широте и географической долготе
@@ -48,7 +69,8 @@ def get_location_key_by_city_name(city_name: str) -> Optional[str]:
     if response.status_code != 200:
         print(f"Ошибка при получении геолокации: {response.text}")
         return
-    location_key = response.json()["Key"]
+    print(response.json())
+    location_key = response.json()[0]["Key"]
     return location_key
 
 
@@ -73,20 +95,28 @@ def get_forecast_data_by_location_key(location_key: str) -> Optional[str]:
     params = {
         "apikey": api_key,
         "language": response_lang,
+        "details": True,
     }
     response = requests.get(forecast_base_url, params=params)
     if response.status_code != 200:
         print(f"Ошибка при получении прогноза погоды: {response.text}")
         return
     response_json = response.json()
-    temperature_data = response_json["DailyForecasts"]["Day"]["WetBulbTemperature"]["Average"]
-    humidity_data = response_json["DailyForecasts"]["Day"]["RelativeHumidity"]["Average"]
-    wind_speed_data = response_json["DailyForecasts"]["Day"]["Wind"]["Speed"]
-    precipitation_probability = response_json["DailyForecasts"]["Day"]["PrecipitationProbability"]
+    forecast = response_json["DailyForecasts"][0]
+    temperature_data = forecast["Day"]["WetBulbTemperature"]["Average"]
+    humidity_data = forecast["Day"]["RelativeHumidity"]["Average"]
+    wind_speed_data = forecast["Day"]["Wind"]["Speed"]
+    precipitation_probability = forecast["Day"]["PrecipitationProbability"]
+
+    # Перевод температуры из шкалы Фаренгейта в шкалу Цельсия
+    temperature_value = fahrenheit_to_celsius(temperature_data["Value"])
+
+    # Перевод скорости в ветра из мили/ч в км/ч
+    wind_speed_value = miles_to_kilometers(wind_speed_data["Value"])
     result = {
-        "temperature": temperature_data["Value"],
+        "temperature": temperature_value,
         "humidity": humidity_data,
-        "wind_speed": wind_speed_data["Value"],
+        "wind_speed": wind_speed_value,
         "precipitation_probability": precipitation_probability,
     }
     json_result = json.dumps(result, indent=4)
@@ -104,34 +134,50 @@ def check_bad_weather(temperature: float, humidity: float, wind_speed: float, pr
     :param precipitation_probability: Вероятность осадков
     :return: Ответ на вопрос: является ли погода плохой. (True/False)
     """
-    if temperature < 0 or temperature > 35:
-        return True
-    if wind_speed > 50:
-        return True
-    if precipitation_probability > 70:
-        return True
-    if humidity < 30 or humidity > 80:
-        return True
+    try:
+        # Для величин, чьё значение не None, проверяем, подходят ли они под критерии
+        # плохой погоды
+        if temperature and (temperature < 0 or temperature > 35):
+            return True
+        if wind_speed and wind_speed > 50:
+            return True
+        if precipitation_probability and precipitation_probability > 70:
+            return True
+        if humidity and (humidity < 30 or humidity > 80):
+            return True
+    # В случае, когда в прогноз попало что-то и нельзя сравнить возвращаем False
+    except TypeError as e:
+        return False
+    except Exception as e:
+        print(repr(e))
+        return False
     return False
 
 
 if __name__ == "__main__":
     # Тестовые запросы, чтобы проверить работоспособность API
 
+    # Тестовый запрос, чтобы получить ключ локации для города "Москва"
+    location_key = get_location_key_by_city_name("Москва")
+    print("Ключ локации для города Москва:", location_key)
+
     # Тестовый запрос для места "Екатеринбург"
     location_key = get_location_key_by_geo_position(56.837864, 60.594882)
+    print("Прогноз погоды в Екатеринбурге")
     forecast_data_json = get_forecast_data_by_location_key(location_key)
     print(forecast_data_json)
 
     # Тестовый запрос для места "Москва, Измайлово Гамма"
     location_key = get_location_key_by_geo_position(55.791749, 37.748619)
+    print("Прогноз погоды в Москве, Измайлово Гамма")
     forecast_data_json = get_forecast_data_by_location_key(location_key)
     print(forecast_data_json)
 
     # Тестовый запрос для места с температурой больше 35 градусов
-    # (температура может меняться, на момент написания кода - в Ботсване больше 35 градусов)
-    location_key = get_location_key_by_geo_position(-24.658372, 25.912146)
+    # (температура может меняться, на момент написания кода - где-то в Африке больше 35 градусов)
+    location_key = get_location_key_by_geo_position(10.093611, 27.863056)
     forecast_data_json = get_forecast_data_by_location_key(location_key)
+    print("Прогноз погоды в Африке")
     print(forecast_data_json)
     dict_data = json.loads(forecast_data_json)
     print("Результат для места с температурой больше 35 градусов:", check_bad_weather(**dict_data))
@@ -139,6 +185,8 @@ if __name__ == "__main__":
     # Тестовый запрос для места с температурой меньше 0 градусов
     # (температура может меняться, на момент написания кода - в Норильске меньше 0 градусов)
     location_key = get_location_key_by_geo_position(69.343985, 88.210393)
+    forecast_data_json = get_forecast_data_by_location_key(location_key)
+    print("Прогноз погоды в Норильске")
     print(forecast_data_json)
     dict_data = json.loads(forecast_data_json)
-    print("Результат для места с температурой больше 35 градусов:", check_bad_weather(**dict_data))
+    print("Результат для места с температурой меньше 0 градусов:", check_bad_weather(**dict_data))
