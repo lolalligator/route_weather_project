@@ -93,12 +93,13 @@ def get_forecast_data_by_location_key(location_key: str) -> Optional[str]:
     return json_result
 
 
-def check_bad_weather(temperature: float, wind_speed: float, precipitation_probability: float) -> bool:
+def check_bad_weather(temperature: float, humidity: float, wind_speed: float, precipitation_probability: float) -> bool:
     """
-    Проверяет по данным из прогноза погоды (температуре, скорости ветра, вероятности осадков),
+    Проверяет по данным из прогноза погоды (температуре, влажности, скорости ветра, вероятности осадков),
     является ли погода плохой. Возвращает True, если погода плохая и False - иначе.
 
     :param temperature: Температура
+    :param humidity: Влажность
     :param wind_speed: Скорость ветра
     :param precipitation_probability: Вероятность осадков
     :return: Ответ на вопрос: является ли погода плохой. (True/False)
@@ -108,6 +109,8 @@ def check_bad_weather(temperature: float, wind_speed: float, precipitation_proba
     if wind_speed > 50:
         return True
     if precipitation_probability > 70:
+        return True
+    if humidity < 30 or humidity > 80:
         return True
     return False
 
