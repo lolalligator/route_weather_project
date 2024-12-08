@@ -21,6 +21,7 @@ def check_bad_weather(temperature: float, wind_speed: float, precipitation_proba
         return True
     if precipitation_probability > 70:
         return True
+    return False
 
 
 def get_forecast_data_by_geo_position(latitude: float = 55.791541, longitude: float = 37.748656) -> str:
@@ -91,3 +92,17 @@ if __name__ == "__main__":
     # Тестовый запрос для места "Москва, Измайлово Гамма"
     forecast_data_json = get_forecast_data_by_geo_position()
     print(forecast_data_json)
+
+    # Тестовый запрос для места с температурой больше 35 градусов
+    # (температура может меняться, на момент написания кода - в Ботсване больше 35 градусов)
+    forecast_data_json = get_forecast_data_by_geo_position(-24.658372, 25.912146)
+    print(forecast_data_json)
+    dict_data = json.loads(forecast_data_json)
+    print("Результат для места с температурой больше 35 градусов:", check_bad_weather(**dict_data))
+
+    # Тестовый запрос для места с температурой меньше 0 градусов
+    # (температура может меняться, на момент написания кода - в Норильске меньше 0 градусов)
+    forecast_data_json = get_forecast_data_by_geo_position(69.343985, 88.210393)
+    print(forecast_data_json)
+    dict_data = json.loads(forecast_data_json)
+    print("Результат для места с температурой больше 35 градусов:", check_bad_weather(**dict_data))
