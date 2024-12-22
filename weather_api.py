@@ -1,7 +1,7 @@
 import requests
 import json
 from api_key import api_key
-from typing import Optional
+from typing import Optional, Union
 
 response_lang = "ru-ru"
 
@@ -53,13 +53,15 @@ def get_location_key_by_geo_position(latitude: float, longitude: float) -> Optio
     return location_key
 
 
-def get_location_key_by_city_name(city_name: str) -> Optional[str]:
+def get_location_key_by_city_name(city_name: str, return_geo: bool = False) -> Union[str, tuple, None]:
     """
     Получает ключ гео-позиции с сайта AccuWeather по названию города
 
     Возвращает полученный ключ гео-позиции в формате строки
     :param city_name: Название города
-    :return: Ключ гео-позиции с сайта AccuWeather
+    :param return_geo: Нужно ли вернуть информацию о геопозиции (ширину и долготу)
+    :return: None при ошибке, либо - ключ гео-позиции с сайта AccuWeather.
+    При return_geo = True возвращает также словарь координат latitude, longitude
     """
     cities_base_url = "http://dataservice.accuweather.com/locations/v1/cities/search"
     params = {
@@ -72,8 +74,16 @@ def get_location_key_by_city_name(city_name: str) -> Optional[str]:
         print(f"Ошибка при получении геолокации: {response.text}")
         return
     if not response.json():
+        print(f"Не смог получить ключ геолокации для города {city_name}")
         return
     location_key = response.json()[0]["Key"]
+    if return_geo:
+        geo_position = response.json()[0]["GeoPosition"]
+        geo_dict = {
+            "latitude": geo_position["Latitude"],
+            "longitude": geo_position["Longitude"]
+        }
+        return location_key, geo_dict
     return location_key
 
 
@@ -92,7 +102,7 @@ def get_forecast_data_by_location_key(location_key: str) -> Optional[str]:
     - precipitation_probability - Дневная вероятность выпадения осадков
 
     :param location_key: Ключ локации с сайта AccuWeather
-    :return: Данные о погоде в формате JSON
+    :return: Данные о погоде в формате JSON, либо None при ошибке
     """
     forecast_base_url = f"http://dataservice.accuweather.com/forecasts/v1/daily/1day/{location_key}"
     params = {
@@ -124,6 +134,60 @@ def get_forecast_data_by_location_key(location_key: str) -> Optional[str]:
     }
     json_result = json.dumps(result, indent=4)
     return json_result
+
+
+def get_several_days_forecast_by_location_key(location_key: str, days: int = 5) -> Optional[list]:
+    """Возвращает данные о прогнозе погоды на несколько дней в локации по её ключу локации
+    с сайта AccuWeather
+
+    Ответ в формате списка словарей со следующими значениями:
+
+    - temperature - Средняя дневная температура
+
+    - humidity - Относительная влажность воздуха
+
+    - wind_speed - Средняя дневная скорость воздуха
+
+    - precipitation_probability - Дневная вероятность выпадения осадков
+
+    :param location_key: Ключ локации с сайта AccuWeather
+    :param days: Количество дней в прогнозе (целое число от одного до пяти)
+    :return: Данные о погоде в формате списка словарей, либо None при ошибке
+    """
+    assert 1 <= days <= 5, "Возможно получение прогнозов погоды от 1 до 5 дней, включая концы"
+    forecast_base_url = f"http://dataservice.accuweather.com/forecasts/v1/daily/5day/{location_key}"
+    params = {
+        "apikey": api_key,
+        "language": response_lang,
+        "details": True,
+    }
+    response = requests.get(forecast_base_url, params=params)
+    if response.status_code != 200:
+        print(f"Ошибка при получении прогноза погоды: {response.text}")
+        return
+    response_json = response.json()
+    result_array = []
+    for i in range(days):
+        forecast = response_json["DailyForecasts"][i]
+        temperature_data = forecast["Day"]["WetBulbTemperature"]["Average"]
+        humidity_data = forecast["Day"]["RelativeHumidity"]["Average"]
+        wind_speed_data = forecast["Day"]["Wind"]["Speed"]
+        precipitation_probability = forecast["Day"]["PrecipitationProbability"]
+
+        # Перевод температуры из шкалы Фаренгейта в шкалу Цельсия
+        temperature_value = fahrenheit_to_celsius(temperature_data["Value"])
+
+        # Перевод скорости в ветра из мили/ч в км/ч
+        wind_speed_value = miles_to_kilometers(wind_speed_data["Value"])
+        result = {
+            "temperature": temperature_value,
+            "humidity": humidity_data,
+            "wind_speed": wind_speed_value,
+            "precipitation_probability": precipitation_probability,
+        }
+        result_array.append(result)
+
+    return result_array
 
 
 def check_bad_weather(temperature: float, humidity: float, wind_speed: float, precipitation_probability: float) -> bool:

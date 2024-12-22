@@ -1,62 +1,176 @@
-import json
+import dash
+from dash import dcc, html, Input, Output, State
+import plotly.express as px
+from weather_api import get_location_key_by_city_name, get_several_days_forecast_by_location_key
 
-from flask import Flask, request, render_template, jsonify, make_response
-import weather_api
+app = dash.Dash(__name__)
 
-app = Flask(__name__)
+app.layout = html.Div([
+    html.H1("Прогноз погоды на маршруте", style={"textAlign": "center"}),
+
+    html.Div([
+        html.Label("Введите маршрут (разделяйте города запятыми):"),
+        dcc.Input(
+            id="route-input",
+            type="text",
+            placeholder="например: Москва, Санкт-Петербург, Казань",
+            style={"width": "60%"}
+        ),
+        html.Br(),
+        html.Label("Выбери продолжительность прогноза:"),
+        dcc.Dropdown(
+            id="forecast-duration",
+            options=[
+                {"label": "1 день", "value": 1},
+                {"label": "2 дня", "value": 2},
+                {"label": "3 дня", "value": 3},
+                {"label": "4 дня", "value": 4},
+                {"label": "5 дней", "value": 5},
+            ],
+            value=3,
+            style={"width": "30%"}
+        ),
+        html.Br(),
+        html.Label("Выберите параметры прогноза погоды, которые нужно отобразить:"),
+        dcc.Checklist(
+            id="weather-parameters",
+            options=[
+                {"label": "Температура (°C)", "value": "temperature"},
+                {"label": "Влажность (%)", "value": "humidity"},
+                {"label": "Скорость ветра (км/ч)", "value": "wind_speed"},
+                {"label": "Вероятность осадков (%)", "value": "precipitation_probability"},
+            ],
+            value=["temperature", "humidity", "wind_speed", "precipitation_probability"],
+            inline=True
+        ),
+        html.Br(),
+        html.Button("Получить прогноз!", id="submit-button", n_clicks=0),
+    ], style={"marginBottom": "20px"}),
+
+    html.Div(id="error-message", style={"color": "red", "textAlign": "center"}),
+
+    dcc.Graph(id="route-map"),
+    html.Div(id="forecast-graphs-container")
+])
 
 
-# Тестовая страница для проверки корректности создания flask-приложения
-@app.route('/hello_world', methods=["GET"])
-def hello_world():
-    return 'Hello, World!'
+@app.callback(
+    [
+        Output("route-map", "figure"),
+        Output("forecast-graphs-container", "children"),
+        Output("error-message", "children"),
+    ],
+    [
+        Input("submit-button", "n_clicks")
+    ],
+    [
+        State("route-input", "value"),
+        State("forecast-duration", "value"),
+        State("weather-parameters", "value"),
+    ]
+)
+def update_forecast(n_clicks, route_input, forecast_duration, selected_parameters):
+    if n_clicks == 0 or not route_input:
+        return {}, {}, "Введите маршрут для отображения графиков прогноза погоды."
 
+    cities = [city.strip() for city in route_input.split(",")]
+    if not cities:
+        return {}, {}, "Пожалуйста, введите хотя бы один город."
 
-# Основная страница для получения прогноза погоды на маршруте
-@app.route("/", methods=["GET", "POST"])
-def check_weather_on_the_route():
-    # Обработка GET-запроса
-    try:
-        if request.method == "GET":
-            return render_template("weather_check.html")
-        # Обработка POST-запроса
-        else:
-            start_city = request.form["start_city"]
-            end_city = request.form["end_city"]
+    all_weather_data = []
+    map_points = []
 
-            # Получаем ключи локации для обоих городов
-            start_city_location_key = weather_api.get_location_key_by_city_name(start_city)
-            end_city_location_key = weather_api.get_location_key_by_city_name(end_city)
+    parameter_display_names = {
+        "temperature": "Температура (°C)",
+        "humidity": "Влажность (%)",
+        "wind_speed": "Скорость ветра (км/ч)",
+        "precipitation_probability": "Вероятность осадков (%)",
+    }
 
-            # Обработка ошибки, когда не удалось получить хотя бы один из ключей
-            if not start_city_location_key or not end_city_location_key:
-                return """Не смог найти ключ локации для введенных городов. 
-Перепроверьте корректность введенных городов. Если вы уверены, что ошибки нет, значит ошибка при запросе к API погоды."""
+    size_arg_priority = ["humidity", "wind_speed", "precipitation_probability"]
+    size_arg = None
+    for arg in size_arg_priority:
+        if arg in selected_parameters:
+            size_arg = parameter_display_names[arg]
+            break
 
-            # Получаем прогноз погоды для обоих городов
-            start_city_forecast = weather_api.get_forecast_data_by_location_key(start_city_location_key)
-            end_city_forecast = weather_api.get_forecast_data_by_location_key(end_city_location_key)
+    route_coords = []
+    for city in cities:
+        result_location_key = get_location_key_by_city_name(city, return_geo=True)
+        if not result_location_key:
+            return {}, {}, f"Не смог получить ключ локации для города {city}."
+        location_key, geo_data = result_location_key
+        if not location_key:
+            return {}, {}, f"Не смог получить ключ локации для города {city}."
 
-            # Обработка ошибки, когда не удалось получить хотя бы один из прогнозов погоды
-            if not start_city_forecast or not end_city_forecast:
-                return "Не смог получить прогноз погоды. Вероятнее всего, не смог получить доступ к API."
+        weather_data = get_several_days_forecast_by_location_key(location_key, days=forecast_duration)
+        if not weather_data:
+            return {}, {}, f"Не смог получить данные о погоде для города {city}."
 
-            # На основе прогноза погоды строим оценку
-            start_city_estimation = weather_api.check_bad_weather(**json.loads(start_city_forecast))
-            end_city_estimation = weather_api.check_bad_weather(**json.loads(end_city_forecast))
+        all_weather_data.append((city, weather_data, geo_data))
+        route_coords.append((geo_data["latitude"], geo_data["longitude"]))
+        map_points.append({
+            "Город": city,
+            "lat": geo_data["latitude"],
+            "lon": geo_data["longitude"],
+            "Температура (°C)": round(weather_data[0]["temperature"], 2),
+            "Влажность (%)": round(weather_data[0]["humidity"], 2),
+            "Скорость ветра (км/ч)": round(weather_data[0]["wind_speed"], 2),
+            "Вероятность осадков (%)": round(weather_data[0]["precipitation_probability"], 2),
+        })
 
-            # Если хотя бы в одном из городов плохая погода, то оценка будет "Плохая погода"
-            estimation = start_city_estimation or end_city_estimation
-            if estimation:
-                estimation_message = "На маршруте ожидается плохая погода"
-            else:
-                estimation_message = "На маршруте ожидается хорошая погода"
-            return render_template("result.html", start_city_forecast=start_city_forecast,
-                                   end_city_forecast=end_city_forecast, estimation_message=estimation_message)
-    except Exception as e:
-        print(repr(e))
-        return make_response(jsonify({'error': 'Ошибка сервера'}), 500)
+    map_figure = px.scatter_mapbox(
+        map_points,
+        lat="lat",
+        lon="lon",
+        hover_name="Город",
+        hover_data={parameter_display_names[param]: True for param in selected_parameters},
+        color="Температура (°C)",
+        size=size_arg,
+        size_max=20,
+        zoom=4,
+        title="Маршрутная карта с данными о погоде (наведись на город, чтобы увидеть прогноз)",
+    )
+
+    # Add route as a line
+    route_line = {
+        "type": "scattermapbox",
+        "lat": [coord[0] for coord in route_coords],
+        "lon": [coord[1] for coord in route_coords],
+        "mode": "lines",
+        "line": {"width": 3, "color": "blue"},
+        "name": "Route",
+    }
+    map_figure.add_trace(route_line)
+
+    map_figure.update_layout(mapbox_style="open-street-map",
+                             showlegend=False)
+
+    forecast_graphs = []
+    for param in selected_parameters:
+        forecast_data = []
+        for city, weather_data, _ in all_weather_data:
+            for day, daily_forecast in enumerate(weather_data, start=1):
+                forecast_data.append({
+                    "Город": city,
+                    "День": f"День {day}",
+                    "Значение": daily_forecast[param],
+                })
+
+        forecast_graph = px.line(
+            forecast_data,
+            x="День",
+            y="Значение",
+            color="Город",
+            labels={"Значение": parameter_display_names[param]},
+            title=f"Параметр прогноза погоды: {parameter_display_names[param]}",
+            markers=True,
+        )
+
+        forecast_graphs.append(dcc.Graph(figure=forecast_graph))
+
+    return map_figure, forecast_graphs, ""
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run_server(debug=True)
