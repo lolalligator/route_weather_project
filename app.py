@@ -132,7 +132,7 @@ def update_forecast(n_clicks, route_input, forecast_duration, selected_parameter
         title="Маршрутная карта с данными о погоде (наведись на город, чтобы увидеть прогноз)",
     )
 
-    # Add route as a line
+    # Добавляем линию маршрута на карту
     route_line = {
         "type": "scattermapbox",
         "lat": [coord[0] for coord in route_coords],
@@ -146,6 +146,7 @@ def update_forecast(n_clicks, route_input, forecast_duration, selected_parameter
     map_figure.update_layout(mapbox_style="open-street-map",
                              showlegend=False)
 
+    # Строим графики с параметрами погоды
     forecast_graphs = []
     for param in selected_parameters:
         forecast_data = []
